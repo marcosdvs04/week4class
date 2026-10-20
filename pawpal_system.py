@@ -199,12 +199,15 @@ class Scheduler:
     def generate_plan(self, day: date) -> DailyPlan:
         """Build the plan for the given day.
 
-        Due tasks are placed back-to-back from the owner's day_start in sorted
-        order. A task that doesn't fit in the remaining time is skipped, and
-        shorter tasks after it can still be placed.
+        Due tasks are placed in sorted order, so higher priority tasks claim
+        their slots first. A task with a preferred time starts at that time if
+        it is free, otherwise at the next free slot after it; a task with no
+        preference takes the earliest free slot from the owner's day_start.
+        A task is skipped if it would go over the owner's available minutes
+        or no slot is left before midnight. Entries end up in time order.
         """
         plan = DailyPlan(day)
-        current = to_minutes(self.owner.day_start)
+        day_start = to_minutes(self.owner.day_start)
         remaining = self.owner.available_minutes
 
         for pet, task in self.sort_tasks(self.filter_tasks(self.owner.get_all_tasks(), day)):
@@ -214,11 +217,28 @@ class Scheduler:
                     f"needs {task.duration_minutes} min but only {remaining} min left",
                 )
                 continue
-            plan.add_entry(task, pet, to_hhmm(current), self._reason(task))
-            current += task.duration_minutes
+            preferred = task.preferred_minutes()
+            desired = day_start if preferred is None else max(preferred, day_start)
+            start = self._find_slot(plan, desired, task.duration_minutes)
+            if start is None:
+                plan.skip(task, pet, "no free time slot left today")
+                continue
+            plan.add_entry(task, pet, to_hhmm(start), self._reason(task, start, day_start))
             remaining -= task.duration_minutes
 
+        plan.entries.sort(key=lambda e: to_minutes(e.start_time))
         return plan
+
+    def _find_slot(self, plan: DailyPlan, desired: int, duration: int) -> Optional[int]:
+        """Return the first start time at or after desired that overlaps nothing."""
+        start = desired
+        for entry in sorted(plan.entries, key=lambda e: to_minutes(e.start_time)):
+            entry_start, entry_end = to_minutes(entry.start_time), to_minutes(entry.end_time)
+            if start + duration <= entry_start:
+                break
+            if start < entry_end:
+                start = entry_end
+        return start if start + duration <= 24 * 60 else None
 
     def sort_tasks(self, tasks: list[tuple[Pet, Task]]) -> list[tuple[Pet, Task]]:
         """Order (pet, task) pairs by priority, then by preferred time or duration.
@@ -258,8 +278,13 @@ class Scheduler:
                 )
         return warnings
 
-    def _reason(self, task: Task) -> str:
+    def _reason(self, task: Task, start: int, day_start: int) -> str:
         reason = f"{task.priority} priority"
-        if task.preferred_time:
-            reason += f", preferred {task.preferred_time}"
-        return reason
+        preferred = task.preferred_minutes()
+        if preferred is None:
+            return reason + ", no preferred time, so placed in the earliest free slot"
+        if start == preferred:
+            return reason + f", at its preferred time ({task.preferred_time})"
+        if preferred < day_start and start == day_start:
+            return reason + f", prefers {task.preferred_time} but the day starts at {to_hhmm(day_start)}"
+        return reason + f", prefers {task.preferred_time} but that slot was taken"

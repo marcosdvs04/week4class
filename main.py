@@ -50,6 +50,7 @@ def print_schedule(plan, owner) -> None:
                   f"{e.pet.name:<10}"
                   f"{e.task.priority:<10}"
                   f"{e.task.duration_minutes:>4}")
+            print(f"{'':<14}-> {e.reason}")
 
     print("-" * width)
     used = plan.total_minutes()

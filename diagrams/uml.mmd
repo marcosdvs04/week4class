@@ -45,6 +45,7 @@ classDiagram
         +sort_tasks(tasks: List~tuple~) List~tuple~
         +filter_tasks(tasks: List~tuple~, day: date) List~tuple~
         +detect_conflicts(plan: DailyPlan) List~str~
+        -_find_slot(plan: DailyPlan, desired: int, duration: int) int
     }
 
     class DailyPlan {
