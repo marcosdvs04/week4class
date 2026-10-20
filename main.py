@@ -21,6 +21,9 @@ def build_household(today: date) -> Owner:
                           category="walk", preferred_time="07:30"))
     biscuit.add_task(Task("Breakfast", 10, priority="high",
                           category="feeding", preferred_time="08:00"))
+    # Same pet, same time as Breakfast -> detect_time_conflicts() should warn.
+    biscuit.add_task(Task("Meds", 5, priority="high",
+                          category="meds", preferred_time="08:00"))
 
     luna = Pet(name="Luna", species="cat", breed="Siamese")
     # Low priority first, high priority last - again, out of order.
@@ -30,9 +33,13 @@ def build_household(today: date) -> Owner:
                        category="grooming", frequency="weekly"))
     luna.add_task(Task("Litter box", 10, priority="high",
                        category="grooming", preferred_time="09:00"))
+    # Different pet, same time as Biscuit's Breakfast -> also a conflict.
+    luna.add_task(Task("Breakfast", 10, priority="high",
+                       category="feeding", preferred_time="08:00"))
 
-    # Already done today -> filter_tasks() should drop it from the plan.
-    luna._find_task("Nail trim").mark_complete(today)
+    # Already done today -> filter_tasks() should drop it from the plan, and
+    # complete_task() adds next week's Nail trim automatically.
+    luna.complete_task("Nail trim", today)
 
     owner.add_pet(biscuit)
     owner.add_pet(luna)
@@ -43,8 +50,14 @@ def describe(pair) -> str:
     """One-line description of a (pet, task) pair."""
     pet, task = pair
     when = task.preferred_time or "no preference"
+    if task.completed:
+        status = "done"
+    elif task.due_date:
+        status = f"due {task.due_date.isoformat()}"
+    else:
+        status = "due now"
     return (f"{task.title:<16}{pet.name:<10}{task.priority:<9}"
-            f"{task.duration_minutes:>3} min   {when}")
+            f"{task.duration_minutes:>3} min   {when:<14}{status}")
 
 
 def print_section(title: str, pairs) -> None:
@@ -103,21 +116,36 @@ def main() -> None:
     print_section("2. AFTER filter_tasks() - only tasks due today", due)
     dropped = [p for p in entered if p not in due]
     for pet, task in dropped:
-        print(f"  filtered out: {task.title} ({pet.name}) - already completed today")
+        reason = ("already completed today" if task.completed
+                  else f"next occurrence, due {task.due_date.isoformat()}")
+        print(f"  filtered out: {task.title} ({pet.name}) - {reason}")
 
     # Step 3: sort_tasks() orders by priority, then preferred time, then duration.
     ordered = scheduler.sort_tasks(due)
     print_section("3. AFTER sort_tasks() - high priority and earlier times first", ordered)
 
-    # Step 4: the finished plan.
+    # Step 4: warn about tasks that ask for overlapping times. This only
+    # prints warnings; the scheduler still builds a plan by moving tasks.
+    print("\n4. detect_time_conflicts() - tasks asking for overlapping times")
+    print("-" * 64)
+    conflicts = scheduler.detect_time_conflicts(due)
+    if not conflicts:
+        print("  No conflicts.")
+    for warning in conflicts:
+        print(f"  WARNING: {warning}")
+
+    # Step 5: the finished plan, with a final check that nothing overlaps.
     plan = scheduler.generate_plan(today)
     print_schedule(plan, owner)
+    plan_conflicts = scheduler.detect_conflicts(plan)
+    print("Final plan overlaps: " + ("; ".join(plan_conflicts) or "none"))
 
-    conflicts = scheduler.detect_conflicts(plan)
-    if conflicts:
-        print("\nCONFLICTS DETECTED:")
-        for warning in conflicts:
-            print(f"  ! {warning}")
+    # Step 6: completing a recurring task schedules its next occurrence.
+    next_breakfast = scheduler.mark_task_complete("Biscuit", "Breakfast", today)
+    print_section("6. AFTER mark_task_complete('Biscuit', 'Breakfast') - Biscuit's tasks",
+                  [(owner.pets[0], t) for t in owner.pets[0].get_tasks()])
+    print(f"  Breakfast is daily, so the next one is due "
+          f"{today.isoformat()} + 1 day = {next_breakfast.due_date.isoformat()}")
     print()
 
 

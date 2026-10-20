@@ -41,8 +41,9 @@ The review also pointed out a few things I decided not to change yet: times are 
 
 **b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+My conflict detection only warns about clashes. It doesn't resolve them in a smart way. `Scheduler.detect_time_conflicts()` looks at the time window each task asks for (its preferred time plus its duration) and reports any two windows that overlap, whether they belong to the same pet or to different pets. It returns these as warning messages instead of raising an error. When the plan is built, the conflict is settled by a simple rule. Tasks are placed one at a time in sorted order: higher priority first, then earlier preferred time, then shorter duration. The task placed first keeps its slot, and each later task moves to the next free slot. For example, Biscuit's breakfast, Biscuit's meds, and Luna's breakfast all want 08:00. The scheduler warns about all three clashes. The morning walk (07:30, moved to 08:00 because the day starts then) has already taken 08:00-08:30, so the three tasks are placed one after another starting at 08:30, and Luna's breakfast ends up at 08:45. The scheduler never looks for a better arrangement, such as moving a lower priority task earlier or asking the owner which task should give way. It also only checks tasks that have a preferred time, so a task with no time preference can never be part of a conflict warning.
+
+This tradeoff is reasonable for PawPal+ because a pet owner usually has only a handful of tasks a day, and most clashes are small, like two feedings at the same time. In that situation, a clear warning plus a predictable "next free slot" rule is easier to understand and trust than an optimizer that rearranges the whole day. Returning warnings instead of crashing also means the owner still gets a usable plan and can fix the clash themselves by changing a preferred time. Using overlapping windows instead of exact time matches costs almost nothing extra and catches real problems an exact match would miss, like a 30-minute walk at 07:45 running into breakfast at 08:00.
 
 ---
 

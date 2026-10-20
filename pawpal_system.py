@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import date
+from dataclasses import dataclass, field, replace
+from datetime import date, timedelta
 from typing import Optional
 
 PRIORITY_VALUES = {"low": 1, "medium": 2, "high": 3}
 FREQUENCIES = ("daily", "weekly")
+# Days until the next occurrence of a recurring task.
+RECURRENCE_DAYS = {"daily": 1, "weekly": 7}
 # Rough start of each named part of the day, in minutes after midnight.
 TIME_OF_DAY = {"morning": 8 * 60, "afternoon": 12 * 60, "evening": 17 * 60}
 
@@ -34,6 +36,8 @@ class Task:
     preferred_time: Optional[str] = None  # e.g. "morning" or "08:00"
     frequency: str = "daily"  # "daily" | "weekly"
     last_completed: Optional[date] = None
+    due_date: Optional[date] = None  # None means due now
+    completed: bool = False
 
     def __post_init__(self) -> None:
         """Reject invalid duration, priority, or frequency values."""
@@ -66,21 +70,42 @@ class Task:
         return to_minutes(self.preferred_time)
 
     def is_due_today(self, day: date) -> bool:
-        """Return True if this task should be scheduled on the given day."""
-        if self.last_completed is None:
-            return True
-        days_since = (day - self.last_completed).days
-        if self.frequency == "weekly":
-            return days_since >= 7
-        return days_since >= 1
+        """Return True if this task is not done and its due date has arrived.
+
+        A task with no due_date is due right away. A next occurrence created
+        by mark_complete() stays hidden until its due_date.
+        """
+        if self.completed:
+            return False
+        return self.due_date is None or self.due_date <= day
 
     def is_complete(self, day: date) -> bool:
-        """Return True if this task was already done for the given day."""
-        return not self.is_due_today(day)
+        """Return True if this task instance has been marked done.
 
-    def mark_complete(self, day: date) -> None:
-        """Record that this task was done on the given day."""
+        Each occurrence of a recurring task is its own Task, so this is just
+        the completed flag. The day argument is kept so callers can treat it
+        like is_due_today().
+        """
+        return self.completed
+
+    def next_due_date(self, day: date) -> date:
+        """Return the due date of the next occurrence after completing on day.
+
+        Adds a timedelta of 1 day (daily) or 7 days (weekly), so month and
+        year boundaries are handled by the date type.
+        """
+        return day + timedelta(days=RECURRENCE_DAYS[self.frequency])
+
+    def mark_complete(self, day: date) -> Task:
+        """Mark this task done on the given day and return its next occurrence.
+
+        The returned task is a fresh, not-completed copy due one day later for
+        daily tasks or seven days later for weekly tasks. The caller decides
+        whether to add it to a pet (see Pet.complete_task).
+        """
+        self.completed = True
         self.last_completed = day
+        return replace(self, due_date=self.next_due_date(day), completed=False)
 
 
 @dataclass
@@ -93,17 +118,40 @@ class Pet:
     tasks: list[Task] = field(default_factory=list)
 
     def _find_task(self, title: str) -> Task:
-        """Return the task with the given title, or raise ValueError if missing."""
-        for task in self.tasks:
-            if task.title == title:
-                return task
-        raise ValueError(f"{self.name} has no task named {title!r}")
+        """Return the task with the given title, or raise ValueError if missing.
+
+        A recurring task can have a completed instance and a pending one with
+        the same title; the pending one is returned when there is one.
+        """
+        matches = [task for task in self.tasks if task.title == title]
+        if not matches:
+            raise ValueError(f"{self.name} has no task named {title!r}")
+        pending = [task for task in matches if not task.completed]
+        return pending[0] if pending else matches[0]
 
     def add_task(self, task: Task) -> None:
-        """Add a care task for this pet."""
-        if any(t.title == task.title for t in self.tasks):
+        """Add a care task for this pet.
+
+        Raises ValueError if a pending task with the same title exists.
+        Completed tasks with that title are fine, since they are history.
+        """
+        if any(t.title == task.title and not t.completed for t in self.tasks):
             raise ValueError(f"{self.name} already has a task named {task.title!r}")
         self.tasks.append(task)
+
+    def complete_task(self, title: str, day: date) -> Task:
+        """Mark the pending task with this title done and add its next occurrence.
+
+        The completed task stays in the list as history, and the new
+        occurrence is appended and returned. Raises ValueError if there is
+        no pending task with that title.
+        """
+        task = self._find_task(title)
+        if task.completed:
+            raise ValueError(f"{self.name}'s {title!r} is already completed")
+        next_task = task.mark_complete(day)
+        self.tasks.append(next_task)
+        return next_task
 
     def remove_task(self, title: str) -> None:
         """Remove the task with the given title."""
@@ -254,6 +302,17 @@ class Scheduler:
                 start = entry_end
         return start if start + duration <= 24 * 60 else None
 
+    def mark_task_complete(self, pet_name: str, title: str, day: date) -> Task:
+        """Complete a pet's task on the given day and return its next occurrence.
+
+        Looks up the pet by name and delegates to Pet.complete_task().
+        Raises ValueError if the owner has no pet with that name.
+        """
+        for pet in self.owner.pets:
+            if pet.name == pet_name:
+                return pet.complete_task(title, day)
+        raise ValueError(f"{self.owner.name} has no pet named {pet_name!r}")
+
     def sort_tasks(self, tasks: list[tuple[Pet, Task]]) -> list[tuple[Pet, Task]]:
         """Order (pet, task) pairs by priority, then by preferred time or duration.
 
@@ -301,7 +360,9 @@ class Scheduler:
     ) -> list[tuple[Pet, Task]]:
         """Keep (pet, task) pairs matching a pet name and/or completion status.
 
-        Leave a filter as None to ignore it. Completion is checked for the given day.
+        Leave a filter as None to ignore it; set both to combine them, e.g.
+        pet_name="Luna", completed=False for Luna's pending tasks. The day is
+        passed to Task.is_complete().
         """
         return [
             (pet, task)
@@ -311,17 +372,51 @@ class Scheduler:
         ]
 
     def detect_conflicts(self, plan: DailyPlan) -> list[str]:
-        """Return warnings for any overlapping scheduled tasks."""
+        """Return warnings for any overlapping scheduled tasks in a finished plan.
+
+        generate_plan() never places tasks on top of each other, so this is a
+        safety check and should normally return an empty list. To warn about
+        clashing requested times, use detect_time_conflicts().
+        """
+        windows = [
+            (e.pet, e.task, to_minutes(e.start_time), to_minutes(e.end_time))
+            for e in plan.entries
+        ]
+        return self._overlap_warnings(windows)
+
+    def detect_time_conflicts(self, tasks: list[tuple[Pet, Task]]) -> list[str]:
+        """Return warnings for tasks whose preferred times overlap.
+
+        Each task with a preferred time asks for the window [preferred,
+        preferred + duration). Two windows that overlap are a conflict, for
+        the same pet or for different pets. Tasks with no preferred time are
+        ignored. This only warns; it never raises or changes any task.
+        """
+        windows = [
+            (pet, task, task.preferred_minutes(),
+             task.preferred_minutes() + task.duration_minutes)
+            for pet, task in tasks
+            if task.preferred_minutes() is not None
+        ]
+        return self._overlap_warnings(windows)
+
+    def _overlap_warnings(self, windows: list[tuple[Pet, Task, int, int]]) -> list[str]:
+        """Return a warning for each overlapping pair of (pet, task, start, end) windows.
+
+        Windows are sorted by start, so each one only needs comparing with
+        the ones after it that start before it ends.
+        """
         warnings = []
-        entries = sorted(plan.entries, key=lambda e: to_minutes(e.start_time))
-        for i, earlier in enumerate(entries):
-            for later in entries[i + 1:]:
-                if to_minutes(later.start_time) >= to_minutes(earlier.end_time):
+        windows = sorted(windows, key=lambda w: w[2])
+        for i, (pet_a, task_a, start_a, end_a) in enumerate(windows):
+            for pet_b, task_b, start_b, end_b in windows[i + 1:]:
+                if start_b >= end_a:
                     break
+                who = f"same pet ({pet_a.name})" if pet_a is pet_b else "different pets"
                 warnings.append(
-                    f"{earlier.task.title} ({earlier.pet.name}, {earlier.start_time}-"
-                    f"{earlier.end_time}) overlaps {later.task.title} "
-                    f"({later.pet.name}, {later.start_time}-{later.end_time})"
+                    f"Conflict, {who}: {task_a.title} ({pet_a.name}, "
+                    f"{to_hhmm(start_a)}-{to_hhmm(end_a)}) overlaps {task_b.title} "
+                    f"({pet_b.name}, {to_hhmm(start_b)}-{to_hhmm(end_b)})"
                 )
         return warnings
 

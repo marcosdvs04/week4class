@@ -71,3 +71,61 @@ def test_filter_by_pet_name_and_completion_status():
     assert [task.title for _, task in luna] == ["Play"]
     assert [task.title for _, task in done] == ["Breakfast"]
     assert [task.title for _, task in biscuit_pending] == ["Evening walk", "Brush"]
+
+
+def test_completing_daily_task_creates_next_occurrence_tomorrow():
+    """mark_task_complete() on a daily task adds a copy due today + 1 day."""
+    scheduler = make_scheduler()
+    today = date(2026, 10, 20)
+
+    next_task = scheduler.mark_task_complete("Biscuit", "Breakfast", today)
+    breakfasts = [t for t in scheduler.owner.pets[0].tasks if t.title == "Breakfast"]
+
+    assert len(breakfasts) == 2
+    assert breakfasts[0].completed is True
+    assert next_task in breakfasts
+    assert next_task.completed is False
+    assert next_task.due_date == date(2026, 10, 21)
+    assert next_task.is_due_today(today) is False
+    assert next_task.is_due_today(date(2026, 10, 21)) is True
+
+
+def test_completing_weekly_task_creates_next_occurrence_in_seven_days():
+    """A weekly task's next occurrence is due a week later, across month ends."""
+    pet = Pet(name="Luna", species="cat")
+    pet.add_task(Task("Nail trim", 15, frequency="weekly"))
+
+    next_task = pet.complete_task("Nail trim", date(2026, 10, 28))
+
+    assert next_task.due_date == date(2026, 11, 4)
+    assert pet._find_task("Nail trim") is next_task  # pending instance wins
+
+
+def test_detect_time_conflicts_warns_for_same_and_different_pets():
+    """Overlapping preferred times produce warnings, labelled by pet."""
+    dog = Pet(name="Biscuit", species="dog")
+    cat = Pet(name="Luna", species="cat")
+    dog.add_task(Task("Breakfast", 10, preferred_time="08:00"))
+    dog.add_task(Task("Meds", 5, preferred_time="08:05"))
+    cat.add_task(Task("Breakfast", 10, preferred_time="08:00"))
+    owner = Owner(name="Marcos", available_minutes=60)
+    owner.add_pet(dog)
+    owner.add_pet(cat)
+
+    warnings = Scheduler(owner).detect_time_conflicts(owner.get_all_tasks())
+
+    assert len(warnings) == 3
+    assert any("same pet (Biscuit)" in w and "Meds" in w for w in warnings)
+    assert sum("different pets" in w for w in warnings) == 2
+
+
+def test_detect_time_conflicts_ignores_back_to_back_and_unset_times():
+    """Tasks that only touch, or have no preferred time, are not conflicts."""
+    pet = Pet(name="Biscuit", species="dog")
+    pet.add_task(Task("Morning walk", 30, preferred_time="07:30"))
+    pet.add_task(Task("Breakfast", 10, preferred_time="08:00"))
+    pet.add_task(Task("Brush", 10))
+    owner = Owner(name="Marcos", available_minutes=60)
+    owner.add_pet(pet)
+
+    assert Scheduler(owner).detect_time_conflicts(owner.get_all_tasks()) == []
