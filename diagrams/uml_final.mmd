@@ -1,0 +1,95 @@
+classDiagram
+    %% PawPal+ final UML. Matches pawpal_system.py after Phases 3-5.
+    %% Changes from the draft (uml.mmd): recurrence fields and methods on Task,
+    %% Pet.complete_task(), new Scheduler sorting/filtering/conflict methods,
+    %% Owner can have 0 pets, and the Task "next occurrence" relationship.
+
+    class Owner {
+        +str name
+        +int available_minutes
+        +str day_start
+        +dict preferences
+        +List~Pet~ pets
+        +add_pet(pet: Pet) None
+        +get_pets() List~Pet~
+        +get_all_tasks() List~tuple~
+        +update_availability(minutes: int) None
+    }
+
+    class Pet {
+        +str name
+        +str species
+        +str breed
+        +List~Task~ tasks
+        +add_task(task: Task) None
+        +complete_task(title: str, day: date) Task
+        +remove_task(title: str) None
+        +edit_task(title: str, changes: dict) None
+        +get_tasks() List~Task~
+        -_find_task(title: str) Task
+    }
+
+    class Task {
+        +str title
+        +int duration_minutes
+        +str priority
+        +str category
+        +str preferred_time
+        +str frequency
+        +date last_completed
+        +date due_date
+        +bool completed
+        +priority_value() int
+        +preferred_minutes() int
+        +is_due_today(day: date) bool
+        +is_complete(day: date) bool
+        +next_due_date(day: date) date
+        +mark_complete(day: date) Task
+    }
+
+    class Scheduler {
+        +Owner owner
+        +generate_plan(day: date) DailyPlan
+        +mark_task_complete(pet_name, title, day) Task
+        +sort_tasks(tasks: List~tuple~) List~tuple~
+        +sort_by_time(tasks: List~tuple~) List~tuple~
+        +filter_tasks(tasks: List~tuple~, day: date) List~tuple~
+        +filter_by(tasks: List~tuple~, day: date, pet_name: str, completed: bool) List~tuple~
+        +detect_conflicts(plan: DailyPlan) List~str~
+        +detect_time_conflicts(tasks: List~tuple~) List~str~
+        +find_time_conflicts(tasks: List~tuple~) List~tuple~
+        -_find_slot(plan: DailyPlan, desired: int, duration: int) int
+        -_preferred_windows(tasks: List~tuple~) List~tuple~
+        -_overlapping_pairs(windows: List~tuple~) List~tuple~
+        -_overlap_warnings(windows: List~tuple~) List~str~
+        -_reason(task: Task, start: int, day_start: int) str
+    }
+
+    class DailyPlan {
+        +date day
+        +List~ScheduledTask~ entries
+        +List~ScheduledTask~ skipped
+        +add_entry(task: Task, pet: Pet, start_time: str, reason: str) None
+        +skip(task: Task, pet: Pet, reason: str) None
+        +total_minutes() int
+        +summary() str
+    }
+
+    class ScheduledTask {
+        +Task task
+        +Pet pet
+        +str start_time
+        +str end_time
+        +str reason
+    }
+
+    Owner "1" o-- "0..*" Pet : has
+    Pet "1" *-- "0..*" Task : needs
+    Task ..> Task : mark_complete() creates next occurrence
+    Scheduler --> Owner : reads constraints from
+    Scheduler ..> Pet : completes tasks through
+    Scheduler ..> Task : sorts, filters, checks conflicts
+    Scheduler ..> DailyPlan : creates
+    DailyPlan "1" *-- "0..*" ScheduledTask : contains
+    ScheduledTask --> Task : refers to
+    ScheduledTask --> Pet : for
