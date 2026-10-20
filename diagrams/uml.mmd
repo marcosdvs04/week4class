@@ -1,15 +1,71 @@
 classDiagram
-    %% Replace the placeholders below with your actual classes, attributes, methods, and relationships.
-    %% Keep this file updated so it matches your final implementation.
+    %% PawPal+ draft UML (Phase 2). Update in Phase 6 to match the final implementation.
 
-    class ClassName {
-        +type attribute
-        +method() returnType
+    class Owner {
+        +str name
+        +int available_minutes
+        +str day_start
+        +dict preferences
+        +List~Pet~ pets
+        +add_pet(pet: Pet) None
+        +get_pets() List~Pet~
+        +update_availability(minutes: int) None
     }
 
-    class AnotherClass {
-        +type attribute
-        +method() returnType
+    class Pet {
+        +str name
+        +str species
+        +str breed
+        +List~Task~ tasks
+        +add_task(task: Task) None
+        +remove_task(title: str) None
+        +edit_task(title: str, changes: dict) None
+        +get_tasks() List~Task~
     }
 
-    ClassName --> AnotherClass : relationship
+    class Task {
+        +str title
+        +int duration_minutes
+        +str priority
+        +str category
+        +str preferred_time
+        +str frequency
+        +bool completed
+        +priority_value() int
+        +is_due_today(day: date) bool
+        +mark_complete() None
+    }
+
+    class Scheduler {
+        +Owner owner
+        +generate_plan(day: date) DailyPlan
+        +sort_tasks(tasks: List~Task~) List~Task~
+        +filter_tasks(tasks: List~Task~, day: date) List~Task~
+        +detect_conflicts(plan: DailyPlan) List~str~
+    }
+
+    class DailyPlan {
+        +date day
+        +List~ScheduledTask~ entries
+        +List~ScheduledTask~ skipped
+        +add_entry(task: Task, pet: Pet, start_time: str, reason: str) None
+        +skip(task: Task, pet: Pet, reason: str) None
+        +total_minutes() int
+        +summary() str
+    }
+
+    class ScheduledTask {
+        +Task task
+        +Pet pet
+        +str start_time
+        +str end_time
+        +str reason
+    }
+
+    Owner "1" o-- "1..*" Pet : has
+    Pet "1" *-- "0..*" Task : needs
+    Scheduler --> Owner : reads constraints from
+    Scheduler ..> DailyPlan : creates
+    DailyPlan "1" *-- "0..*" ScheduledTask : contains
+    ScheduledTask --> Task : refers to
+    ScheduledTask --> Pet : for
