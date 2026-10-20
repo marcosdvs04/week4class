@@ -11,6 +11,25 @@ st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 if "owner" not in st.session_state:
     st.session_state.owner = Owner(name="Jordan", available_minutes=60)
 owner = st.session_state.owner
+scheduler = Scheduler(owner)
+today = date.today()
+
+
+def task_status(task: Task) -> str:
+    """Short status label for the task table."""
+    if task.completed:
+        return "✅ done"
+    if task.due_date is None or task.due_date <= today:
+        return "due today"
+    return f"due {task.due_date.strftime('%b %d')}"
+
+
+def show_flash() -> None:
+    """Show a message saved before the last st.rerun(), then clear it."""
+    message = st.session_state.pop("flash", None)
+    if message:
+        st.success(message)
+
 
 st.title("🐾 PawPal+")
 st.caption("Plan your pets' care tasks around the time you have today.")
@@ -101,36 +120,94 @@ if owner.get_pets():
                 except ValueError as e:
                     st.error(str(e))
 
-    for pet in owner.get_pets():
-        st.markdown(f"**{pet.name}** ({pet.species}{', ' + pet.breed if pet.breed else ''})")
-        tasks = pet.get_tasks()
-        if tasks:
-            st.table([
-                {
-                    "Task": t.title,
-                    "Minutes": t.duration_minutes,
-                    "Priority": t.priority,
-                    "Category": t.category,
-                    "Preferred": t.preferred_time or "-",
-                    "Frequency": t.frequency,
-                }
-                for t in tasks
-            ])
-        else:
-            st.caption("No tasks yet.")
+    # One table for every pet, sorted by time, with pet and status filters.
+    st.markdown("**All tasks** (sorted by preferred time)")
+    col1, col2 = st.columns(2)
+    with col1:
+        pet_filter = st.selectbox("Show pet", ["All pets"] + [p.name for p in owner.get_pets()])
+    with col2:
+        status_filter = st.radio("Show status", ["All", "Pending", "Done"], horizontal=True)
+    shown = scheduler.sort_by_time(scheduler.filter_by(
+        owner.get_all_tasks(),
+        today,
+        pet_name=None if pet_filter == "All pets" else pet_filter,
+        completed={"All": None, "Pending": False, "Done": True}[status_filter],
+    ))
+    if shown:
+        st.table([
+            {
+                "Time": t.preferred_time or "any",
+                "Task": t.title,
+                "Pet": pet.name,
+                "Minutes": t.duration_minutes,
+                "Priority": t.priority,
+                "Repeats": t.frequency,
+                "Status": task_status(t),
+            }
+            for pet, t in shown
+        ])
+    elif owner.get_all_tasks():
+        st.caption("No tasks match these filters.")
+    else:
+        st.caption("No tasks yet. Add one above.")
+
+    # Completing a task creates its next daily/weekly occurrence.
+    show_flash()
+    due_now = scheduler.filter_tasks(owner.get_all_tasks(), today)
+    if due_now:
+        with st.form("complete_form"):
+            labels = [f"{t.title} ({pet.name})" for pet, t in due_now]
+            choice = st.selectbox("Mark a task done", labels)
+            if st.form_submit_button("Mark complete"):
+                pet, t = due_now[labels.index(choice)]
+                next_task = scheduler.mark_task_complete(pet.name, t.title, today)
+                st.session_state.flash = (
+                    f"Marked {t.title} done for {pet.name}. It repeats {t.frequency}, "
+                    f"so the next one is due {next_task.due_date.strftime('%A, %B %d')}."
+                )
+                st.rerun()
 
 # --- Schedule ----------------------------------------------------------------
 st.divider()
 st.subheader("Today's schedule")
 
 if st.button("Generate schedule", disabled=not owner.get_all_tasks()):
-    scheduler = Scheduler(owner)
-    plan = scheduler.generate_plan(date.today())
+    st.session_state.show_plan = True
 
-    st.markdown(
-        f"**{plan.day.strftime('%A, %B %d')}** - {plan.total_minutes()} of "
-        f"{owner.available_minutes} min scheduled"
-    )
+# Keep showing the plan after other interactions, so it updates as tasks change.
+if st.session_state.get("show_plan") and owner.get_all_tasks():
+    plan = scheduler.generate_plan(today)
+    placed = {id(e.task): e for e in plan.entries}
+
+    def placed_at(task: Task) -> str:
+        """Where the plan put a task, for conflict messages."""
+        entry = placed.get(id(task))
+        return entry.start_time if entry else "nowhere (it was skipped)"
+
+    # Conflicts first: they explain why some tasks aren't at their preferred time.
+    due = scheduler.filter_tasks(owner.get_all_tasks(), today)
+    for (pet_a, task_a), (pet_b, task_b) in scheduler.find_time_conflicts(due):
+        label_a, label_b = f"{pet_a.name}'s {task_a.title}", f"{pet_b.name}'s {task_b.title}"
+        st.warning(
+            f"**Time conflict:** {label_a} ({task_a.preferred_time}, "
+            f"{task_a.duration_minutes} min) overlaps {label_b} "
+            f"({task_b.preferred_time}, {task_b.duration_minutes} min). "
+            f"You can only do one at a time, so PawPal+ placed {label_a} at "
+            f"{placed_at(task_a)} and {label_b} at {placed_at(task_b)}. "
+            f"To keep both on time, change one task's preferred time.",
+            icon="⏰",
+        )
+
+    st.markdown(f"**{plan.day.strftime('%A, %B %d')}**")
+    used, available = plan.total_minutes(), owner.available_minutes
+    if plan.entries and not plan.skipped:
+        st.success(f"All {len(plan.entries)} tasks fit: {used} of {available} min used.")
+    elif plan.skipped:
+        st.warning(
+            f"{len(plan.skipped)} task(s) didn't fit today. "
+            f"{used} of {available} min used. See *Skipped* below."
+        )
+
     if plan.entries:
         st.table([
             {
@@ -143,12 +220,16 @@ if st.button("Generate schedule", disabled=not owner.get_all_tasks()):
             for e in plan.entries
         ])
     else:
-        st.info("Nothing could be scheduled today.")
+        st.info("Nothing is due today, or nothing could be scheduled.")
 
     if plan.skipped:
         st.markdown("**Skipped**")
-        for e in plan.skipped:
-            st.markdown(f"- {e.task.title} ({e.pet.name}): {e.reason}")
+        st.table([
+            {"Task": e.task.title, "Pet": e.pet.name, "Priority": e.task.priority,
+             "Why": e.reason}
+            for e in plan.skipped
+        ])
 
+    # Safety check: the scheduler should never overlap tasks in the plan itself.
     for warning in scheduler.detect_conflicts(plan):
-        st.warning(warning)
+        st.error(warning)
