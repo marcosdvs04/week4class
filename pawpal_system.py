@@ -43,6 +43,15 @@ class Task:
             raise ValueError(f"priority must be one of {list(PRIORITY_VALUES)}")
         if self.frequency not in FREQUENCIES:
             raise ValueError(f"frequency must be one of {list(FREQUENCIES)}")
+        if self.preferred_time is not None and self.preferred_time not in TIME_OF_DAY:
+            try:
+                minutes = to_minutes(self.preferred_time)
+            except ValueError:
+                minutes = -1
+            if not 0 <= minutes < 24 * 60:
+                raise ValueError(
+                    "preferred_time must be HH:MM or one of morning/afternoon/evening"
+                )
 
     def priority_value(self) -> int:
         """Return a numeric rank for sorting (high=3, medium=2, low=1)."""
@@ -126,6 +135,8 @@ class Owner:
 
     def add_pet(self, pet: Pet) -> None:
         """Attach a pet to this owner."""
+        if any(p.name == pet.name for p in self.pets):
+            raise ValueError(f"{self.name} already has a pet named {pet.name!r}")
         self.pets.append(pet)
 
     def get_pets(self) -> list[Pet]:
@@ -263,9 +274,41 @@ class Scheduler:
 
         return sorted(tasks, key=key)
 
+    def sort_by_time(self, tasks: list[tuple[Pet, Task]]) -> list[tuple[Pet, Task]]:
+        """Order (pet, task) pairs by preferred time, earliest first.
+
+        Names like "morning" are converted to minutes so they sort alongside
+        "HH:MM" times. Tasks with no preferred time go last.
+        """
+        return sorted(
+            tasks,
+            key=lambda pair: (
+                pair[1].preferred_minutes() is None,
+                pair[1].preferred_minutes() or 0,
+            ),
+        )
+
     def filter_tasks(self, tasks: list[tuple[Pet, Task]], day: date) -> list[tuple[Pet, Task]]:
         """Keep only (pet, task) pairs whose task is due on the given day."""
         return [(pet, task) for pet, task in tasks if task.is_due_today(day)]
+
+    def filter_by(
+        self,
+        tasks: list[tuple[Pet, Task]],
+        day: date,
+        pet_name: Optional[str] = None,
+        completed: Optional[bool] = None,
+    ) -> list[tuple[Pet, Task]]:
+        """Keep (pet, task) pairs matching a pet name and/or completion status.
+
+        Leave a filter as None to ignore it. Completion is checked for the given day.
+        """
+        return [
+            (pet, task)
+            for pet, task in tasks
+            if (pet_name is None or pet.name == pet_name)
+            and (completed is None or task.is_complete(day) == completed)
+        ]
 
     def detect_conflicts(self, plan: DailyPlan) -> list[str]:
         """Return warnings for any overlapping scheduled tasks."""

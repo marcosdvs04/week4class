@@ -49,20 +49,47 @@ Paste a sample of your app's CLI or Streamlit output here so a reader can see wh
 Output of `python3 main.py`:
 
 ```
+1. TASKS AS ENTERED (unordered)
+----------------------------------------------------------------
+  Evening walk    Biscuit   medium    25 min   18:00
+  Morning walk    Biscuit   high      30 min   07:30
+  Breakfast       Biscuit   high      10 min   08:00
+  Play session    Luna      low       20 min   afternoon
+  Nail trim       Luna      low       15 min   no preference
+  Litter box      Luna      high      10 min   09:00
+
+2. AFTER filter_tasks() - only tasks due today
+----------------------------------------------------------------
+  Evening walk    Biscuit   medium    25 min   18:00
+  Morning walk    Biscuit   high      30 min   07:30
+  Breakfast       Biscuit   high      10 min   08:00
+  Play session    Luna      low       20 min   afternoon
+  Litter box      Luna      high      10 min   09:00
+  filtered out: Nail trim (Luna) - already completed today
+
+3. AFTER sort_tasks() - high priority and earlier times first
+----------------------------------------------------------------
+  Morning walk    Biscuit   high      30 min   07:30
+  Breakfast       Biscuit   high      10 min   08:00
+  Litter box      Luna      high      10 min   09:00
+  Evening walk    Biscuit   medium    25 min   18:00
+  Play session    Luna      low       20 min   afternoon
+
 ================================================================
 TODAY'S SCHEDULE - Tuesday, October 20, 2026
-Owner: Marcos   |   Time available: 120 min
+Owner: Marcos   |   Time available: 90 min
 ================================================================
 TIME          TASK                PET       PRIORITY   MIN
 ----------------------------------------------------------------
 08:00-08:30   Morning walk        Biscuit   high        30
 08:30-08:40   Breakfast           Biscuit   high        10
-08:40-08:50   Litter box          Luna      high        10
-08:50-09:15   Evening walk        Biscuit   medium      25
-09:15-09:35   Play session        Luna      low         20
-09:35-09:50   Nail trim           Luna      low         15
+09:00-09:10   Litter box          Luna      high        10
+18:00-18:25   Evening walk        Biscuit   medium      25
 ----------------------------------------------------------------
-Scheduled: 110 min of 120 min (10 min free)
+Scheduled: 75 min of 90 min (15 min free)
+
+SKIPPED (ran out of time)
+  - Play session (Luna): needs 20 min but only 15 min left
 ================================================================
 ```
 
