@@ -9,6 +9,7 @@ classDiagram
         +List~Pet~ pets
         +add_pet(pet: Pet) None
         +get_pets() List~Pet~
+        +get_all_tasks() List~tuple~
         +update_availability(minutes: int) None
     }
 
@@ -30,17 +31,19 @@ classDiagram
         +str category
         +str preferred_time
         +str frequency
-        +bool completed
+        +date last_completed
         +priority_value() int
+        +preferred_minutes() int
         +is_due_today(day: date) bool
-        +mark_complete() None
+        +is_complete(day: date) bool
+        +mark_complete(day: date) None
     }
 
     class Scheduler {
         +Owner owner
         +generate_plan(day: date) DailyPlan
-        +sort_tasks(tasks: List~Task~) List~Task~
-        +filter_tasks(tasks: List~Task~, day: date) List~Task~
+        +sort_tasks(tasks: List~tuple~) List~tuple~
+        +filter_tasks(tasks: List~tuple~, day: date) List~tuple~
         +detect_conflicts(plan: DailyPlan) List~str~
     }
 

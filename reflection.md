@@ -12,13 +12,23 @@ Based on the scenario, I identified three core actions a user should be able to 
 
 **a. Initial design**
 
-- Briefly describe your initial UML design.
-- What classes did you include, and what responsibilities did you assign to each?
+My initial UML design has six classes organized around a simple flow: an owner has pets, each pet has care tasks, and a scheduler turns those tasks into a daily plan. I kept the data objects (`Owner`, `Pet`, `Task`, `ScheduledTask`, `DailyPlan`) as Python dataclasses and made `Scheduler` a regular class, since it holds behavior rather than data.
+
+- **Owner** stores the person's name, how many minutes they have for pet care today, what time their day starts, and any preferences. It is responsible for managing the list of pets and supplies the main constraint the scheduler works within: available time.
+- **Pet** stores the pet's name, species, and breed, and owns its list of care tasks. It is responsible for adding, editing, and removing those tasks.
+- **Task** represents a single care activity such as a walk, feeding, or medication. It holds the title, duration, priority, category, preferred time, and how often it repeats. It is responsible for reporting its own priority as a number for sorting and for deciding whether it is due on a given day.
+- **Scheduler** contains the planning logic. It reads the owner's constraints, filters out tasks that aren't due, sorts the rest by priority, fits them into the available time, and checks for conflicts. Its main method, `generate_plan`, produces a `DailyPlan`.
+- **DailyPlan** is the output for one day. It keeps the list of scheduled entries and a separate list of skipped tasks, and it can total the scheduled minutes and produce a readable summary for the UI.
+- **ScheduledTask** is one entry in the plan. It links a task to its pet, adds a start and end time, and stores the reason it was scheduled or skipped. Keeping it separate from `Task` means the same task can appear in plans on different days without changing the task itself.
 
 **b. Design changes**
 
-- Did your design change during implementation?
-- If yes, describe at least one change and why you made it.
+Yes. After drafting the skeleton, I asked my AI assistant to review `pawpal_system.py` for missing relationships and logic bottlenecks, and I made two changes based on its feedback:
+
+1. **Keeping the pet attached to each task during scheduling.** Originally, `Scheduler.sort_tasks()` and `filter_tasks()` took a plain list of `Task` objects. The problem is that once tasks from several pets are combined and sorted, there is no way to know which pet each task belongs to, but `DailyPlan.add_entry()` needs that information. I added an `Owner.get_all_tasks()` method that returns `(pet, task)` pairs and changed the scheduler methods to work with those pairs instead.
+2. **Replacing `completed` with `last_completed`.** Originally, `Task` had a `completed: bool` flag. That doesn't work for recurring tasks: once a daily walk is marked done, it would stay done forever and never appear in tomorrow's plan. I replaced the flag with `last_completed`, a date, so `is_due_today()` can compare it to the current day and decide whether a daily or weekly task is due again.
+
+The review also pointed out a few things I decided not to change yet: times are stored as strings like `"08:00"`, which will need parsing for time math; tasks are identified by title, which could be ambiguous if a pet has two tasks with the same name; and `priority` and `preferences` aren't validated. These are manageable at the current size of the project, and I will revisit them if they cause problems during implementation.
 
 ---
 
