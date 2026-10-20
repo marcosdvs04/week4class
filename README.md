@@ -122,23 +122,40 @@ Final plan overlaps: none
 
 ## 🧪 Testing PawPal+
 
+Run the test suite from the project folder:
+
 ```bash
-# Run the full test suite:
-pytest
-
-# Run with coverage:
-pytest --cov
+python -m pytest
 ```
 
-Sample test output:
+The tests are in `tests/test_pawpal.py` (24 tests). They use fixed dates, so the results don't depend on what day you run them. They cover:
+
+- **Sorting:** `sort_by_time()` returns tasks in chronological order, including `"00:00"`, and tasks at the same time keep the order they were added. The finished plan lists entries by start time, even though high priority tasks are placed first.
+- **Filtering:** `filter_by()` works by pet name, by completion status, and by both together. Tasks that are done or not due yet are left out of the plan.
+- **Recurrence:** completing a daily task creates a new task due the next day. That task is missing from today's plan and appears in tomorrow's. A weekly task isn't due on day 6 but is due on day 7, including across a month boundary. Completing a task for an unknown pet raises an error.
+- **Conflict detection:** two tasks at exactly the same time are flagged. So are overlapping windows, for the same pet or for different pets, and `"morning"` clashing with `"08:00"`. Back-to-back tasks and tasks with no preferred time are not flagged. A generated plan never contains overlaps.
+- **Edge cases:** an owner with no pets or a pet with no tasks, a zero time budget, a task that would run past midnight, a preferred time before the owner's day starts, and invalid times such as `"25:00"`, `"12:60"` or `"noon"`.
+
+Successful run:
 
 ```
-collected 8 items
+============================= test session starts ==============================
+platform darwin -- Python 3.13.0, pytest-9.1.1, pluggy-1.7.0
+rootdir: /Users/marcosdelvado/Documents/FAU/Clases/Fall 2026/CEN 4010 Software Engineering/Assignments/week4class
+collected 24 items
 
-tests/test_pawpal.py ........                                            [100%]
+tests/test_pawpal.py ........................                            [100%]
 
-============================== 8 passed in 0.01s ===============================
+============================== 24 passed in 0.02s ==============================
 ```
+
+**Confidence level: ★★★★☆ (4/5)**
+
+The core scheduling rules are well covered, with happy paths and edge cases for sorting, filtering, recurrence and conflicts, and every test passes. Writing these tests also caught a real bug: `"12:60"` was being accepted as a valid time. It isn't 5 stars because:
+
+- The Streamlit UI in `app.py` isn't tested.
+- Multi-day scenarios are only partly tested, beyond "today and tomorrow".
+- Completing the same daily task twice on one day completes tomorrow's copy early. The schedule is still right, but the history gets an extra "done" record.
 
 ## 📐 Smarter Scheduling
 

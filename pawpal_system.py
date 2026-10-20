@@ -49,10 +49,10 @@ class Task:
             raise ValueError(f"frequency must be one of {list(FREQUENCIES)}")
         if self.preferred_time is not None and self.preferred_time not in TIME_OF_DAY:
             try:
-                minutes = to_minutes(self.preferred_time)
+                hours, minutes = (int(part) for part in self.preferred_time.split(":"))
             except ValueError:
-                minutes = -1
-            if not 0 <= minutes < 24 * 60:
+                hours, minutes = -1, -1
+            if not (0 <= hours < 24 and 0 <= minutes < 60):
                 raise ValueError(
                     "preferred_time must be HH:MM or one of morning/afternoon/evening"
                 )
