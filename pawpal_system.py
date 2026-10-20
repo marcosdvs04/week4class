@@ -36,6 +36,7 @@ class Task:
     last_completed: Optional[date] = None
 
     def __post_init__(self) -> None:
+        """Reject invalid duration, priority, or frequency values."""
         if self.duration_minutes <= 0:
             raise ValueError("duration_minutes must be positive")
         if self.priority not in PRIORITY_VALUES:
@@ -83,6 +84,7 @@ class Pet:
     tasks: list[Task] = field(default_factory=list)
 
     def _find_task(self, title: str) -> Task:
+        """Return the task with the given title, or raise ValueError if missing."""
         for task in self.tasks:
             if task.title == title:
                 return task
@@ -194,6 +196,7 @@ class Scheduler:
     """Builds a DailyPlan from an owner's pets, tasks, and constraints."""
 
     def __init__(self, owner: Owner) -> None:
+        """Create a scheduler that plans around this owner's pets and constraints."""
         self.owner = owner
 
     def generate_plan(self, day: date) -> DailyPlan:
@@ -248,6 +251,7 @@ class Scheduler:
         shorter tasks break any remaining ties.
         """
         def key(pair: tuple[Pet, Task]) -> tuple:
+            """Build the sort key: priority, has preference, preferred time, duration."""
             task = pair[1]
             preferred = task.preferred_minutes()
             return (
@@ -279,6 +283,7 @@ class Scheduler:
         return warnings
 
     def _reason(self, task: Task, start: int, day_start: int) -> str:
+        """Explain why a task was placed at its start time."""
         reason = f"{task.priority} priority"
         preferred = task.preferred_minutes()
         if preferred is None:
