@@ -392,32 +392,58 @@ class Scheduler:
         the same pet or for different pets. Tasks with no preferred time are
         ignored. This only warns; it never raises or changes any task.
         """
-        windows = [
+        return self._overlap_warnings(self._preferred_windows(tasks))
+
+    def find_time_conflicts(
+        self, tasks: list[tuple[Pet, Task]]
+    ) -> list[tuple[tuple[Pet, Task], tuple[Pet, Task]]]:
+        """Return each pair of (pet, task) pairs whose preferred times overlap.
+
+        Same check as detect_time_conflicts(), but returns the tasks instead
+        of message strings, so a UI can build its own messages.
+        """
+        return [
+            ((pet_a, task_a), (pet_b, task_b))
+            for (pet_a, task_a, _, _), (pet_b, task_b, _, _)
+            in self._overlapping_pairs(self._preferred_windows(tasks))
+        ]
+
+    def _preferred_windows(self, tasks: list[tuple[Pet, Task]]) -> list[tuple[Pet, Task, int, int]]:
+        """Return (pet, task, start, end) windows for tasks with a preferred time."""
+        return [
             (pet, task, task.preferred_minutes(),
              task.preferred_minutes() + task.duration_minutes)
             for pet, task in tasks
             if task.preferred_minutes() is not None
         ]
-        return self._overlap_warnings(windows)
 
-    def _overlap_warnings(self, windows: list[tuple[Pet, Task, int, int]]) -> list[str]:
-        """Return a warning for each overlapping pair of (pet, task, start, end) windows.
+    def _overlapping_pairs(self, windows: list[tuple[Pet, Task, int, int]]) -> list[tuple]:
+        """Return each overlapping pair of (pet, task, start, end) windows.
 
         Windows are sorted by start, so each one only needs comparing with
         the ones after it that start before it ends.
         """
-        warnings = []
+        pairs = []
         windows = sorted(windows, key=lambda w: w[2])
-        for i, (pet_a, task_a, start_a, end_a) in enumerate(windows):
-            for pet_b, task_b, start_b, end_b in windows[i + 1:]:
-                if start_b >= end_a:
+        for i, earlier in enumerate(windows):
+            for later in windows[i + 1:]:
+                if later[2] >= earlier[3]:
                     break
-                who = f"same pet ({pet_a.name})" if pet_a is pet_b else "different pets"
-                warnings.append(
-                    f"Conflict, {who}: {task_a.title} ({pet_a.name}, "
-                    f"{to_hhmm(start_a)}-{to_hhmm(end_a)}) overlaps {task_b.title} "
-                    f"({pet_b.name}, {to_hhmm(start_b)}-{to_hhmm(end_b)})"
-                )
+                pairs.append((earlier, later))
+        return pairs
+
+    def _overlap_warnings(self, windows: list[tuple[Pet, Task, int, int]]) -> list[str]:
+        """Return a warning for each overlapping pair of (pet, task, start, end) windows."""
+        warnings = []
+        for (pet_a, task_a, start_a, end_a), (pet_b, task_b, start_b, end_b) in (
+            self._overlapping_pairs(windows)
+        ):
+            who = f"same pet ({pet_a.name})" if pet_a is pet_b else "different pets"
+            warnings.append(
+                f"Conflict, {who}: {task_a.title} ({pet_a.name}, "
+                f"{to_hhmm(start_a)}-{to_hhmm(end_a)}) overlaps {task_b.title} "
+                f"({pet_b.name}, {to_hhmm(start_b)}-{to_hhmm(end_b)})"
+            )
         return warnings
 
     def _reason(self, task: Task, start: int, day_start: int) -> str:

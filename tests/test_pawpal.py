@@ -315,3 +315,19 @@ def test_invalid_preferred_time_raises(bad_time):
     """Times that aren't valid HH:MM or a known part of the day are rejected."""
     with pytest.raises(ValueError):
         Task("Walk", 30, preferred_time=bad_time)
+
+
+def test_find_time_conflicts_returns_the_clashing_tasks():
+    """find_time_conflicts() gives the (pet, task) pairs behind each warning."""
+    pet = Pet(name="Biscuit", species="dog")
+    breakfast = Task("Breakfast", 10, preferred_time="08:00")
+    meds = Task("Meds", 5, preferred_time="08:05")
+    pet.add_task(breakfast)
+    pet.add_task(meds)
+    pet.add_task(Task("Walk", 30, preferred_time="09:00"))
+    owner = Owner(name="Marcos", available_minutes=60)
+    owner.add_pet(pet)
+
+    conflicts = Scheduler(owner).find_time_conflicts(owner.get_all_tasks())
+
+    assert conflicts == [((pet, breakfast), (pet, meds))]
